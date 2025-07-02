@@ -31,3 +31,8 @@ pub use state::State;
 
 // Error handling
 pub use errors::{GameError, GameResult};
+
+#[cfg(test)]
+mod database_test;
+#[cfg(test)]
+mod types_test;

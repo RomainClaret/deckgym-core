@@ -154,10 +154,6 @@ impl State {
 /// Safe wrapper functions that can be used as drop-in replacements
 pub mod safe_operations {
     use super::*;
-    use crate::{
-        actions::Action,
-        types::EnergyType,
-    };
     
     /// Safe version of apply_evolve
     pub fn apply_evolve_safe(
@@ -307,7 +303,7 @@ mod tests {
     use super::*;
     use crate::{
         test_helpers::load_test_decks,
-        types::{Pokemon, TrainerCard, TrainerType},
+        types::{PokemonCard, TrainerCard, TrainerType},
     };
     
     #[test]
@@ -331,9 +327,13 @@ mod tests {
         let mut state = State::new(&deck_a, &deck_b);
         
         let fake_card = Card::Trainer(TrainerCard {
-            id: 999,
+            id: "999".to_string(),
+            numeric_id: 999,
             name: "Fake Card".to_string(),
-            trainer_type: TrainerType::Item,
+            trainer_card_type: TrainerType::Item,
+            effect: "Test effect".to_string(),
+            rarity: "Common".to_string(),
+            booster_pack: "Test".to_string(),
         });
         
         // Should fail - card not in hand

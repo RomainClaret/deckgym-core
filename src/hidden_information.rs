@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use crate::{
+    actions::SimpleAction,
     types::{Card, EnergyType},
     State,
 };
@@ -128,8 +129,7 @@ pub enum TopCardDecision {
 pub mod safe_trainer_effects {
     use super::*;
     use crate::{
-        actions::{SimpleAction, Action},
-        types::TrainerCard,
+        actions::Action,
     };
     
     /// Safe Professor's Research effect - draws 2 without revealing cards
@@ -217,24 +217,33 @@ pub fn resolve_hidden_outcome(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{Pokemon, TrainerCard, TrainerType};
+    use crate::types::{PokemonCard, TrainerCard, TrainerType};
     
     #[test]
     fn test_hidden_knowledge_tracking() {
-        let card1 = Card::Pokemon(Pokemon {
-            id: 1,
+        let card1 = Card::Pokemon(PokemonCard {
+            id: "1".to_string(),
             name: "Pikachu".to_string(),
             hp: 60,
-            energy_type: EnergyType::Electric,
+            energy_type: EnergyType::Lightning,
             stage: 0,
             evolves_from: None,
             weakness: None,
+            ability: None,
+            attacks: vec![],
+            retreat_cost: vec![],
+            rarity: "Common".to_string(),
+            booster_pack: "Base".to_string(),
         });
         
         let card2 = Card::Trainer(TrainerCard {
-            id: 2,
+            id: "2".to_string(),
+            numeric_id: 2,
             name: "Potion".to_string(),
-            trainer_type: TrainerType::Item,
+            trainer_card_type: TrainerType::Item,
+            effect: "Heal 20 damage".to_string(),
+            rarity: "Common".to_string(),
+            booster_pack: "Base".to_string(),
         });
         
         let deck1 = vec![card1.clone(); 10];
@@ -255,24 +264,34 @@ mod tests {
     
     #[test]
     fn test_deck_probabilities() {
-        let card1 = Card::Pokemon(Pokemon {
-            id: 1,
+        let card1 = Card::Pokemon(PokemonCard {
+            id: "1".to_string(),
             name: "Pikachu".to_string(),
             hp: 60,
-            energy_type: EnergyType::Electric,
+            energy_type: EnergyType::Lightning,
             stage: 0,
             evolves_from: None,
             weakness: None,
+            ability: None,
+            attacks: vec![],
+            retreat_cost: vec![],
+            rarity: "Common".to_string(),
+            booster_pack: "Base".to_string(),
         });
         
-        let card2 = Card::Pokemon(Pokemon {
-            id: 2,
+        let card2 = Card::Pokemon(PokemonCard {
+            id: "2".to_string(),
             name: "Raichu".to_string(),
             hp: 90,
-            energy_type: EnergyType::Electric,
+            energy_type: EnergyType::Lightning,
             stage: 1,
             evolves_from: Some("Pikachu".to_string()),
             weakness: None,
+            ability: None,
+            attacks: vec![],
+            retreat_cost: vec![],
+            rarity: "Common".to_string(),
+            booster_pack: "Base".to_string(),
         });
         
         let mut knowledge = HiddenKnowledge::default();

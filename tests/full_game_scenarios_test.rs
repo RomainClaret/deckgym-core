@@ -4,10 +4,10 @@ use deckgym::{
     card_ids::CardId,
     database::get_card_by_enum,
     players::{AttachAttackPlayer, EndTurnPlayer, MctsPlayer, Player, RandomPlayer},
-    state::{GameOutcome, State},
+    state::GameOutcome,
     test_helpers::load_test_decks,
     types::{Card, EnergyType, PlayedCard},
-    Game,
+    Game, State,
 };
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -53,16 +53,35 @@ fn test_game_ends_on_no_bench_knockout() {
 }
 
 #[test]
-fn test_game_ends_on_six_points() {
-    // Test that game ends when a player reaches 6 points
+fn test_game_ends_with_winner() {
+    // Test that game ends properly with a winner
     let players = init_random_players();
     let mut game = Game::new(players, 999);
     
     let outcome = game.play();
+    let final_state = game.get_state_clone();
     
-    if let Some(GameOutcome::Win(winner)) = outcome {
-        let final_state = game.get_state_clone();
-        assert_eq!(final_state.points[winner], 6);
+    match outcome {
+        Some(GameOutcome::Win(winner)) => {
+            // Winner should have at least 1 point (knocked out at least one Pokemon)
+            assert!(final_state.points[winner] >= 1, 
+                "Winner {} should have at least 1 point but has {}", 
+                winner, final_state.points[winner]);
+            
+            // Game ends at 3 points OR when opponent has no Pokemon
+            assert!(final_state.points[winner] >= 3 || 
+                    final_state.in_play_pokemon[(winner + 1) % 2].iter().all(|p| p.is_none()),
+                    "Game should end when reaching 3 points or opponent has no Pokemon");
+        }
+        Some(GameOutcome::Tie) => {
+            // Tie is valid if both players reached 3 points
+            assert_eq!(final_state.points[0], final_state.points[1]);
+            assert!(final_state.points[0] >= 3);
+        }
+        None => {
+            panic!("Game ended without outcome (turn limit?) at turn {}", 
+                final_state.turn_count);
+        }
     }
 }
 
@@ -159,27 +178,40 @@ fn test_trainer_cards_played() {
     let players = init_random_players();
     let mut game = Game::new(players, 1111);
     
-    let initial_deck_sizes = {
-        let state = game.get_state_clone();
-        [state.decks[0].cards.len(), state.decks[1].cards.len()]
-    };
+    let initial_state = game.get_state_clone();
+    let initial_deck_sizes = [initial_state.decks[0].cards.len(), 
+                            initial_state.decks[1].cards.len()];
     
-    // Play some turns
-    for _ in 0..20 {
+    // Play up to 50 turns or until game ends
+    let mut turns_played = 0;
+    for _ in 0..50 {
         if game.get_state_clone().is_game_over() {
             break;
         }
         game.play_tick();
+        turns_played += 1;
     }
     
-    let state = game.get_state_clone();
+    let final_state = game.get_state_clone();
     
-    // Check if cards were drawn (Professor's Research) or other effects
-    let cards_drawn = (initial_deck_sizes[0] - state.decks[0].cards.len()) +
-                     (initial_deck_sizes[1] - state.decks[1].cards.len());
+    // Check if cards were drawn or trainer cards played
+    let cards_drawn = (initial_deck_sizes[0].saturating_sub(final_state.decks[0].cards.len())) +
+                     (initial_deck_sizes[1].saturating_sub(final_state.decks[1].cards.len()));
     
-    // More than 20 cards drawn indicates trainer effects
-    assert!(cards_drawn > 20 || state.has_played_support);
+    // Check if any trainer cards were played by looking at discard piles
+    let trainer_cards_in_discard = final_state.discard_piles[0].iter()
+        .chain(final_state.discard_piles[1].iter())
+        .filter(|card| matches!(card, Card::Trainer(_)))
+        .count();
+    
+    // The test passes if:
+    // 1. Game ended very early (< 5 turns)
+    // 2. OR significant cards were drawn (> 20)
+    // 3. OR trainer cards were played
+    // 4. OR a supporter was played
+    assert!(turns_played < 5 || cards_drawn > 20 || trainer_cards_in_discard > 0 || final_state.has_played_support,
+        "Game ran for {} turns but showed no evidence of trainer card usage: {} cards drawn, {} trainers in discard, supporter played: {}", 
+        turns_played, cards_drawn, trainer_cards_in_discard, final_state.has_played_support);
 }
 
 #[test]

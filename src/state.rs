@@ -35,8 +35,8 @@ pub struct State {
     pub in_play_pokemon: [[Option<PlayedCard>; 4]; 2],
 
     // Turn Flags (remember to reset these in reset_turn_states)
-    pub(crate) has_played_support: bool,
-    pub(crate) has_retreated: bool,
+    pub has_played_support: bool,
+    pub has_retreated: bool,
     // Maps turn to a vector of effects (cards) for that turn. Using BTreeMap to keep State hashable.
     turn_effects: BTreeMap<u8, Vec<Card>>,
 }
@@ -206,7 +206,7 @@ impl State {
             .filter(|(i, _)| *i != 0)
     }
 
-    pub(crate) fn queue_draw_action(&mut self, actor: usize) {
+    pub fn queue_draw_action(&mut self, actor: usize) {
         self.move_generation_stack
             .push((actor, vec![SimpleAction::DrawCard]));
     }
@@ -237,7 +237,7 @@ impl State {
         self.generate_energy();
     }
 
-    pub(crate) fn is_game_over(&self) -> bool {
+    pub fn is_game_over(&self) -> bool {
         self.winner.is_some() || self.turn_count >= 100
     }
 
@@ -279,8 +279,9 @@ fn to_canonical_names(cards: &[Card]) -> Vec<&String> {
 mod tests {
     use crate::{
         deck::is_basic,
+        hooks::to_playable_card,
         test_helpers::load_test_decks,
-        types::{Pokemon, Status, TrainerType, TrainerCard},
+        types::{TrainerType, TrainerCard, PokemonCard, Card, EnergyType},
     };
 
     use super::*;
@@ -335,9 +336,13 @@ mod tests {
         
         // Create a card that's not in hand
         let fake_card = Card::Trainer(TrainerCard {
-            id: 0,
+            id: "fake1".to_string(),
+            numeric_id: 0,
             name: "Fake Card".to_string(),
-            trainer_type: TrainerType::Item,
+            trainer_card_type: TrainerType::Item,
+            effect: "Test effect".to_string(),
+            rarity: "Common".to_string(),
+            booster_pack: "Base".to_string(),
         });
         
         // This should panic
@@ -410,17 +415,22 @@ mod tests {
         state.has_retreated = true;
         
         // Create a Pokemon and set flags
-        let pokemon = Pokemon {
-            id: 1,
+        let pokemon_card = Card::Pokemon(PokemonCard {
+            id: "test1".to_string(),
             name: "Test Pokemon".to_string(),
             hp: 60,
             energy_type: EnergyType::Grass,
             stage: 0,
             evolves_from: None,
             weakness: None,
-        };
+            ability: None,
+            attacks: vec![],
+            retreat_cost: vec![],
+            rarity: "Common".to_string(),
+            booster_pack: "Base".to_string(),
+        });
         
-        let mut played = PlayedCard::new(Card::Pokemon(pokemon));
+        let mut played = to_playable_card(&pokemon_card, true);
         played.played_this_turn = true;
         played.ability_used = true;
         state.in_play_pokemon[0][0] = Some(played);
@@ -441,9 +451,13 @@ mod tests {
         let mut state = State::new(&deck_a, &deck_b);
         
         let effect_card = Card::Trainer(TrainerCard {
-            id: 1,
+            id: "test1".to_string(),
+            numeric_id: 1,
             name: "Test Effect".to_string(),
-            trainer_type: TrainerType::Item,
+            trainer_card_type: TrainerType::Item,
+            effect: "Test effect description".to_string(),
+            rarity: "Common".to_string(),
+            booster_pack: "Base".to_string(),
         });
         
         // Add effect for 2 turns
@@ -520,18 +534,23 @@ mod tests {
         let mut state = State::new(&deck_a, &deck_b);
         
         // Add some Pokemon
-        let pokemon = Pokemon {
-            id: 1,
+        let pokemon_card = Card::Pokemon(PokemonCard {
+            id: "test1".to_string(),
             name: "Test Pokemon".to_string(),
             hp: 60,
             energy_type: EnergyType::Grass,
             stage: 0,
             evolves_from: None,
             weakness: None,
-        };
+            ability: None,
+            attacks: vec![],
+            retreat_cost: vec![],
+            rarity: "Common".to_string(),
+            booster_pack: "Base".to_string(),
+        });
         
-        state.in_play_pokemon[0][0] = Some(PlayedCard::new(Card::Pokemon(pokemon.clone())));
-        state.in_play_pokemon[0][2] = Some(PlayedCard::new(Card::Pokemon(pokemon)));
+        state.in_play_pokemon[0][0] = Some(to_playable_card(&pokemon_card, true));
+        state.in_play_pokemon[0][2] = Some(to_playable_card(&pokemon_card, true));
         
         let pokemon_list: Vec<_> = state.enumerate_in_play_pokemon(0).collect();
         assert_eq!(pokemon_list.len(), 2);
@@ -545,19 +564,24 @@ mod tests {
         let mut state = State::new(&deck_a, &deck_b);
         
         // Add some Pokemon
-        let pokemon = Pokemon {
-            id: 1,
+        let pokemon_card = Card::Pokemon(PokemonCard {
+            id: "test1".to_string(),
             name: "Test Pokemon".to_string(),
             hp: 60,
             energy_type: EnergyType::Grass,
             stage: 0,
             evolves_from: None,
             weakness: None,
-        };
+            ability: None,
+            attacks: vec![],
+            retreat_cost: vec![],
+            rarity: "Common".to_string(),
+            booster_pack: "Base".to_string(),
+        });
         
-        state.in_play_pokemon[0][0] = Some(PlayedCard::new(Card::Pokemon(pokemon.clone())));
-        state.in_play_pokemon[0][1] = Some(PlayedCard::new(Card::Pokemon(pokemon.clone())));
-        state.in_play_pokemon[0][2] = Some(PlayedCard::new(Card::Pokemon(pokemon)));
+        state.in_play_pokemon[0][0] = Some(to_playable_card(&pokemon_card, true));
+        state.in_play_pokemon[0][1] = Some(to_playable_card(&pokemon_card, true));
+        state.in_play_pokemon[0][2] = Some(to_playable_card(&pokemon_card, true));
         
         let bench_list: Vec<_> = state.enumerate_bench_pokemon(0).collect();
         assert_eq!(bench_list.len(), 2);
@@ -571,29 +595,39 @@ mod tests {
         let mut state = State::new(&deck_a, &deck_b);
         
         // Add Pokemon of different types
-        let grass_pokemon = Pokemon {
-            id: 1,
+        let grass_pokemon_card = Card::Pokemon(PokemonCard {
+            id: "grass1".to_string(),
             name: "Grass Pokemon".to_string(),
             hp: 60,
             energy_type: EnergyType::Grass,
             stage: 0,
             evolves_from: None,
             weakness: None,
-        };
+            ability: None,
+            attacks: vec![],
+            retreat_cost: vec![],
+            rarity: "Common".to_string(),
+            booster_pack: "Base".to_string(),
+        });
         
-        let fire_pokemon = Pokemon {
-            id: 2,
+        let fire_pokemon_card = Card::Pokemon(PokemonCard {
+            id: "fire1".to_string(),
             name: "Fire Pokemon".to_string(),
             hp: 60,
             energy_type: EnergyType::Fire,
             stage: 0,
             evolves_from: None,
             weakness: None,
-        };
+            ability: None,
+            attacks: vec![],
+            retreat_cost: vec![],
+            rarity: "Common".to_string(),
+            booster_pack: "Base".to_string(),
+        });
         
-        state.in_play_pokemon[0][0] = Some(PlayedCard::new(Card::Pokemon(grass_pokemon.clone())));
-        state.in_play_pokemon[0][1] = Some(PlayedCard::new(Card::Pokemon(grass_pokemon)));
-        state.in_play_pokemon[0][2] = Some(PlayedCard::new(Card::Pokemon(fire_pokemon)));
+        state.in_play_pokemon[0][0] = Some(to_playable_card(&grass_pokemon_card, true));
+        state.in_play_pokemon[0][1] = Some(to_playable_card(&grass_pokemon_card, true));
+        state.in_play_pokemon[0][2] = Some(to_playable_card(&fire_pokemon_card, true));
         
         assert_eq!(state.num_in_play_of_type(0, EnergyType::Grass), 2);
         assert_eq!(state.num_in_play_of_type(0, EnergyType::Fire), 1);

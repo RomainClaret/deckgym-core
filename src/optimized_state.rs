@@ -7,6 +7,7 @@ use std::sync::Arc;
 use crate::{
     actions::SimpleAction,
     deck::Deck,
+    state::GameOutcome,
     types::{Card, EnergyType, PlayedCard},
 };
 
@@ -16,7 +17,7 @@ use crate::{
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
 pub struct OptimizedState {
     // Turn State - cheap to clone
-    pub winner: Option<super::GameOutcome>,
+    pub winner: Option<GameOutcome>,
     pub points: [u8; 2],
     pub turn_count: u8,
     pub current_player: usize,
@@ -162,9 +163,10 @@ impl OptimizedState {
     
     /// Add a turn effect with copy-on-write
     pub(crate) fn add_turn_effect(&mut self, card: Card, duration: u8) {
+        let current_turn = self.turn_count;
         let effects = self.turn_effects_mut();
         for turn_offset in 0..(duration + 1) {
-            let target_turn = self.turn_count + turn_offset;
+            let target_turn = current_turn + turn_offset;
             effects
                 .entry(target_turn)
                 .or_default()
@@ -173,7 +175,7 @@ impl OptimizedState {
                 "Adding effect {:?} for {} turns, current turn: {}, target turn: {}",
                 canonical_name(&card),
                 duration,
-                self.turn_count,
+                current_turn,
                 target_turn
             );
         }

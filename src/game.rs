@@ -92,6 +92,12 @@ impl Game {
         self.state.clone()
     }
 
+    /// Get mutable reference to state - USE ONLY FOR TESTING
+    /// WARNING: This breaks encapsulation and should only be used in tests
+    pub fn get_state_mut(&mut self) -> &mut State {
+        &mut self.state
+    }
+
     // TODO: Maybe make these only available for testing?
     pub fn apply_action(&mut self, action: &Action) {
         apply_action(&mut self.rng, &mut self.state, action);

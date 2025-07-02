@@ -5,7 +5,7 @@ use rand::{distributions::WeightedIndex, prelude::Distribution, rngs::StdRng};
 use crate::{
     hooks::{get_retreat_cost, on_attach_tool, to_playable_card},
     state::State,
-    types::{Card, PlayedCard},
+    types::{Card, PlayedCard, TrainerCard, TrainerType},
 };
 
 use super::{
@@ -14,7 +14,7 @@ use super::{
         apply_common_mutation, forecast_end_turn, handle_attack_damage, Mutations, Probabilities,
     },
     apply_attack_action::forecast_attack,
-    apply_trainer_action::forecast_trainer_action,
+    safe_trainer_actions::forecast_trainer_action_safe,
     Action, SimpleAction,
 };
 
@@ -56,7 +56,7 @@ pub fn forecast_action(state: &State, action: &Action) -> (Probabilities, Mutati
         ),
         SimpleAction::Attack(index) => forecast_attack(action.actor, state, *index),
         SimpleAction::Play { trainer_card } => {
-            forecast_trainer_action(action.actor, state, trainer_card)
+            forecast_trainer_action_safe(action.actor, state, trainer_card)
         }
         // acting_player is not passed here, because there is only 1 turn to end. The current turn.
         SimpleAction::EndTurn => forecast_end_turn(state),
@@ -201,7 +201,7 @@ mod tests {
     use crate::card_ids::CardId;
     use crate::database::get_card_by_enum;
     use crate::tool_ids::ToolId;
-    use crate::types::{PlayedCard, Pokemon, TrainerCard, TrainerType};
+    use crate::types::{PlayedCard, TrainerCard, TrainerType};
     use crate::{types::EnergyType, Deck};
 
     #[test]
@@ -363,14 +363,14 @@ mod tests {
             actor: 0,
             action: SimpleAction::AttachTool {
                 in_play_idx: 0,
-                tool_id: ToolId::PA010RockyHelmet,
+                tool_id: ToolId::A2148RockyHelmet,
             },
             is_stack: false,
         };
         
         apply_action(&mut rng, &mut state, &action);
         
-        assert_eq!(state.in_play_pokemon[0][0].as_ref().unwrap().attached_tool, Some(ToolId::PA010RockyHelmet));
+        assert_eq!(state.in_play_pokemon[0][0].as_ref().unwrap().attached_tool, Some(ToolId::A2148RockyHelmet));
     }
 
     #[test]
@@ -524,14 +524,18 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Only Pokemon cards can be evolved")]
+    #[should_panic(expected = "Unplayable Trainer Card")]
     fn test_evolve_with_trainer_card_panics() {
         let mut state = State::new(&Deck::default(), &Deck::default());
         let mankey = get_card_by_enum(CardId::A1141Mankey);
         let trainer = Card::Trainer(TrainerCard {
-            id: 1,
+            id: "1".to_string(),
+            numeric_id: 1,
             name: "Test Trainer".to_string(),
-            trainer_type: TrainerType::Item,
+            trainer_card_type: TrainerType::Item,
+            effect: "Test effect".to_string(),
+            rarity: "Common".to_string(),
+            booster_pack: "Test".to_string(),
         });
         
         state.in_play_pokemon[0][0] = Some(to_playable_card(&mankey, false));
@@ -569,7 +573,7 @@ mod tests {
             actor: 0,
             action: SimpleAction::AttachTool {
                 in_play_idx: 0,
-                tool_id: ToolId::PA010RockyHelmet,
+                tool_id: ToolId::A2148RockyHelmet,
             },
             is_stack: false,
         };
@@ -605,7 +609,7 @@ mod tests {
             },
             SimpleAction::AttachTool {
                 in_play_idx: 0,
-                tool_id: ToolId::PA010RockyHelmet,
+                tool_id: ToolId::A2148RockyHelmet,
             },
             SimpleAction::Evolve(get_card_by_enum(CardId::A1142Primeape), 0),
             SimpleAction::UseAbility(0),

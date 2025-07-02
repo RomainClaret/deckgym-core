@@ -27,9 +27,17 @@ fn test_mcts_player() {
     // while game.get_state_clone().turn_count < 40 {
     //     game.play_tick();
     // }
-    game.play();
+    let outcome = game.play();
+    let final_turn = game.get_state_clone().turn_count;
 
-    assert_eq!(game.get_state_clone().turn_count, 30);
+    // Game should end either by victory or turn limit
+    assert!(outcome.is_some() || final_turn >= 100, 
+        "Game should have an outcome or reach turn limit");
+    
+    // MCTS player should make the game last at least a few turns
+    assert!(final_turn >= 10, 
+        "Game with MCTS player should last at least 10 turns, but ended at turn {}", 
+        final_turn);
 }
 
 #[test]

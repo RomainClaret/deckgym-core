@@ -2,6 +2,13 @@ mod attacks;
 mod move_generation_abilities;
 mod move_generation_trainer;
 
+#[cfg(test)]
+mod attacks_test;
+#[cfg(test)]
+mod trainer_test;
+#[cfg(test)]
+mod abilities_test;
+
 use crate::actions::{Action, SimpleAction};
 use crate::hooks::{can_retreat, contains_energy, get_retreat_cost};
 use crate::state::State;

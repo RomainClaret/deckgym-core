@@ -23,7 +23,7 @@ pub fn generate_possible_trainer_actions(
     if trainer_card.trainer_card_type == TrainerType::Tool {
         let in_play_without_tools = state
             .enumerate_in_play_pokemon(state.current_player)
-            .filter(|(_, x)| x.has_tool_attached())
+            .filter(|(_, x)| !x.has_tool_attached())
             .count();
         if in_play_without_tools > 0 {
             return Some(vec![SimpleAction::Play {
@@ -34,7 +34,10 @@ pub fn generate_possible_trainer_actions(
         }
     }
 
-    let trainer_id = CardId::from_numeric_id(trainer_card.numeric_id).expect("CardId should exist");
+    let trainer_id = match CardId::from_numeric_id(trainer_card.numeric_id) {
+        Some(id) => id,
+        None => return None, // Unimplemented trainer card
+    };
     match trainer_id {
         CardId::PA001Potion => {
             // There must be at least 1 damaged pokemon in play

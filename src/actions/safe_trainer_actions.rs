@@ -229,8 +229,6 @@ fn inner_healing_effect_safe(
     amount: u32,
     energy: Option<crate::types::EnergyType>,
 ) {
-    use crate::types::EnergyType;
-    
     let possible_moves = state
         .enumerate_in_play_pokemon(action.actor)
         .filter(|(_, x)| energy.is_none() || x.get_energy_type() == energy)
@@ -250,7 +248,7 @@ fn koga_effect_safe(_: &mut StdRng, state: &mut State, action: &Action) {
     // Implementation remains the same as it doesn't leak information
     let possible_moves = state
         .enumerate_in_play_pokemon(action.actor)
-        .filter(|(_, x)| x.is_poisoned())
+        .filter(|(_, x)| x.poisoned)
         .map(|(i, _)| SimpleAction::Activate { in_play_idx: i })
         .collect::<Vec<_>>();
         
@@ -346,11 +344,11 @@ mod tests {
         let (deck_a, deck_b) = load_test_decks();
         let state = State::new(&deck_a, &deck_b);
         
-        // Create a Professor's Research card
-        let prof_research = TrainerCard {
-            id: CardId::PA007ProfessorsResearch as u16,
-            name: "Professor's Research".to_string(),
-            trainer_type: crate::types::TrainerType::Supporter,
+        // Get a Professor's Research card from the database
+        let prof_card = crate::database::get_card_by_enum(CardId::PA007ProfessorsResearch);
+        let prof_research = match prof_card {
+            crate::types::Card::Trainer(trainer) => trainer,
+            _ => panic!("Expected trainer card"),
         };
         
         // Forecast should not reveal what cards will be drawn
@@ -367,10 +365,10 @@ mod tests {
         let (deck_a, deck_b) = load_test_decks();
         let state = State::new(&deck_a, &deck_b);
         
-        let pokeball = TrainerCard {
-            id: CardId::PA005PokeBall as u16,
-            name: "Poke Ball".to_string(),
-            trainer_type: crate::types::TrainerType::Item,
+        let pokeball_card = crate::database::get_card_by_enum(CardId::PA005PokeBall);
+        let pokeball = match pokeball_card {
+            crate::types::Card::Trainer(trainer) => trainer,
+            _ => panic!("Expected trainer card"),
         };
         
         // Should not reveal which basic Pokemon are available
