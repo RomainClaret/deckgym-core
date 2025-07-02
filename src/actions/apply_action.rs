@@ -200,7 +200,8 @@ mod tests {
     use super::*;
     use crate::card_ids::CardId;
     use crate::database::get_card_by_enum;
-    use crate::types::PlayedCard;
+    use crate::tool_ids::ToolId;
+    use crate::types::{PlayedCard, Pokemon, TrainerCard, TrainerType};
     use crate::{types::EnergyType, Deck};
 
     #[test]
@@ -300,5 +301,359 @@ mod tests {
             state.in_play_pokemon[0][2],
             Some(to_playable_card(&mankey, false))
         );
+    }
+
+    #[test]
+    fn test_draw_card_action() {
+        let mut state = State::new(&Deck::default(), &Deck::default());
+        let mut rng: StdRng = StdRng::seed_from_u64(42);
+        
+        // Add card to deck
+        let card = get_card_by_enum(CardId::A1141Mankey);
+        state.decks[0].cards.push(card.clone());
+        
+        let action = Action {
+            actor: 0,
+            action: SimpleAction::DrawCard,
+            is_stack: false,
+        };
+        
+        assert_eq!(state.hands[0].len(), 0);
+        apply_action(&mut rng, &mut state, &action);
+        assert_eq!(state.hands[0].len(), 1);
+        assert_eq!(state.hands[0][0], card);
+    }
+
+    #[test]
+    fn test_attach_energy_action() {
+        let mut state = State::new(&Deck::default(), &Deck::default());
+        let mut rng: StdRng = StdRng::seed_from_u64(42);
+        
+        // Place a Pokemon
+        let mankey = get_card_by_enum(CardId::A1141Mankey);
+        state.in_play_pokemon[0][0] = Some(to_playable_card(&mankey, false));
+        state.current_energy = Some(EnergyType::Fighting);
+        
+        let action = Action {
+            actor: 0,
+            action: SimpleAction::Attach {
+                attachments: vec![(1, EnergyType::Fighting, 0)],
+                is_turn_energy: true,
+            },
+            is_stack: false,
+        };
+        
+        apply_action(&mut rng, &mut state, &action);
+        
+        assert_eq!(state.in_play_pokemon[0][0].as_ref().unwrap().attached_energy.len(), 1);
+        assert_eq!(state.in_play_pokemon[0][0].as_ref().unwrap().attached_energy[0], EnergyType::Fighting);
+        assert_eq!(state.current_energy, None);
+    }
+
+    #[test]
+    fn test_attach_tool_action() {
+        let mut state = State::new(&Deck::default(), &Deck::default());
+        let mut rng: StdRng = StdRng::seed_from_u64(42);
+        
+        // Place a Pokemon
+        let mankey = get_card_by_enum(CardId::A1141Mankey);
+        state.in_play_pokemon[0][0] = Some(to_playable_card(&mankey, false));
+        
+        let action = Action {
+            actor: 0,
+            action: SimpleAction::AttachTool {
+                in_play_idx: 0,
+                tool_id: ToolId::PA010RockyHelmet,
+            },
+            is_stack: false,
+        };
+        
+        apply_action(&mut rng, &mut state, &action);
+        
+        assert_eq!(state.in_play_pokemon[0][0].as_ref().unwrap().attached_tool, Some(ToolId::PA010RockyHelmet));
+    }
+
+    #[test]
+    fn test_place_pokemon_action() {
+        let mut state = State::new(&Deck::default(), &Deck::default());
+        let mut rng: StdRng = StdRng::seed_from_u64(42);
+        
+        // Add Pokemon to hand
+        let mankey = get_card_by_enum(CardId::A1141Mankey);
+        state.hands[0].push(mankey.clone());
+        
+        let action = Action {
+            actor: 0,
+            action: SimpleAction::Place(mankey.clone(), 0),
+            is_stack: false,
+        };
+        
+        apply_action(&mut rng, &mut state, &action);
+        
+        assert_eq!(state.hands[0].len(), 0);
+        assert!(state.in_play_pokemon[0][0].is_some());
+        assert_eq!(state.in_play_pokemon[0][0].as_ref().unwrap().card, mankey);
+    }
+
+    #[test]
+    fn test_retreat_with_energy_cost() {
+        let mut state = State::new(&Deck::default(), &Deck::default());
+        let mut rng: StdRng = StdRng::seed_from_u64(42);
+        
+        // Place Pokemon with energy
+        let mankey = get_card_by_enum(CardId::A1141Mankey);
+        let primeape = get_card_by_enum(CardId::A1142Primeape);
+        
+        let mut active_pokemon = to_playable_card(&mankey, false);
+        active_pokemon.attached_energy = vec![EnergyType::Fighting, EnergyType::Fighting];
+        state.in_play_pokemon[0][0] = Some(active_pokemon);
+        state.in_play_pokemon[0][1] = Some(to_playable_card(&primeape, false));
+        
+        let action = Action {
+            actor: 0,
+            action: SimpleAction::Retreat(1),
+            is_stack: false,
+        };
+        
+        apply_action(&mut rng, &mut state, &action);
+        
+        // Check Pokemon switched
+        assert_eq!(state.in_play_pokemon[0][0].as_ref().unwrap().card, primeape);
+        assert_eq!(state.in_play_pokemon[0][1].as_ref().unwrap().card, mankey);
+        // Check energy was discarded
+        let bench_pokemon = state.in_play_pokemon[0][1].as_ref().unwrap();
+        assert!(bench_pokemon.attached_energy.len() < 2);
+        assert!(state.has_retreated);
+    }
+
+    #[test]
+    fn test_retreat_removes_status_conditions() {
+        let mut state = State::new(&Deck::default(), &Deck::default());
+        let mut rng: StdRng = StdRng::seed_from_u64(42);
+        
+        // Place poisoned/paralyzed Pokemon
+        let mankey = get_card_by_enum(CardId::A1141Mankey);
+        let primeape = get_card_by_enum(CardId::A1142Primeape);
+        
+        let mut active_pokemon = to_playable_card(&mankey, false);
+        active_pokemon.poisoned = true;
+        active_pokemon.paralyzed = true;
+        active_pokemon.asleep = true;
+        state.in_play_pokemon[0][0] = Some(active_pokemon);
+        state.in_play_pokemon[0][1] = Some(to_playable_card(&primeape, false));
+        
+        let action = Action {
+            actor: 0,
+            action: SimpleAction::Activate { in_play_idx: 1 },
+            is_stack: false,
+        };
+        
+        apply_action(&mut rng, &mut state, &action);
+        
+        // Check status conditions removed
+        let bench_pokemon = state.in_play_pokemon[0][1].as_ref().unwrap();
+        assert!(!bench_pokemon.poisoned);
+        assert!(!bench_pokemon.paralyzed);
+        assert!(!bench_pokemon.asleep);
+    }
+
+    #[test]
+    fn test_apply_damage_action() {
+        let mut state = State::new(&Deck::default(), &Deck::default());
+        let mut rng: StdRng = StdRng::seed_from_u64(42);
+        
+        // Place Pokemon on both sides
+        let mankey = get_card_by_enum(CardId::A1141Mankey);
+        state.in_play_pokemon[0][0] = Some(to_playable_card(&mankey, false));
+        state.in_play_pokemon[1][0] = Some(to_playable_card(&mankey, false));
+        
+        let initial_hp = state.in_play_pokemon[1][0].as_ref().unwrap().remaining_hp;
+        
+        let action = Action {
+            actor: 0,
+            action: SimpleAction::ApplyDamage {
+                targets: vec![(30, 0)],
+            },
+            is_stack: false,
+        };
+        
+        apply_action(&mut rng, &mut state, &action);
+        
+        assert_eq!(
+            state.in_play_pokemon[1][0].as_ref().unwrap().remaining_hp,
+            initial_hp - 30
+        );
+    }
+
+    #[test]
+    fn test_heal_action() {
+        let mut state = State::new(&Deck::default(), &Deck::default());
+        let mut rng: StdRng = StdRng::seed_from_u64(42);
+        
+        // Place damaged Pokemon
+        let mankey = get_card_by_enum(CardId::A1141Mankey);
+        let mut damaged_pokemon = to_playable_card(&mankey, false);
+        damaged_pokemon.remaining_hp = 20;
+        state.in_play_pokemon[0][0] = Some(damaged_pokemon);
+        
+        let action = Action {
+            actor: 0,
+            action: SimpleAction::Heal {
+                in_play_idx: 0,
+                amount: 30,
+            },
+            is_stack: false,
+        };
+        
+        apply_action(&mut rng, &mut state, &action);
+        
+        assert_eq!(state.in_play_pokemon[0][0].as_ref().unwrap().remaining_hp, 50);
+    }
+
+    #[test]
+    #[should_panic(expected = "Only stage 1 or 2 pokemons can be evolved")]
+    fn test_evolve_basic_pokemon_panics() {
+        let mut state = State::new(&Deck::default(), &Deck::default());
+        let mankey = get_card_by_enum(CardId::A1141Mankey);
+        
+        state.in_play_pokemon[0][0] = Some(to_playable_card(&mankey, false));
+        state.hands[0].push(mankey.clone());
+        
+        // Try to evolve with a basic Pokemon
+        apply_evolve(0, &mut state, &mankey, 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Only Pokemon cards can be evolved")]
+    fn test_evolve_with_trainer_card_panics() {
+        let mut state = State::new(&Deck::default(), &Deck::default());
+        let mankey = get_card_by_enum(CardId::A1141Mankey);
+        let trainer = Card::Trainer(TrainerCard {
+            id: 1,
+            name: "Test Trainer".to_string(),
+            trainer_type: TrainerType::Item,
+        });
+        
+        state.in_play_pokemon[0][0] = Some(to_playable_card(&mankey, false));
+        state.hands[0].push(trainer.clone());
+        
+        // Try to evolve with a trainer card
+        apply_evolve(0, &mut state, &trainer, 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Pokemon should be there if attaching energy to it")]
+    fn test_attach_energy_no_pokemon_panics() {
+        let mut state = State::new(&Deck::default(), &Deck::default());
+        let mut rng: StdRng = StdRng::seed_from_u64(42);
+        
+        let action = Action {
+            actor: 0,
+            action: SimpleAction::Attach {
+                attachments: vec![(1, EnergyType::Fighting, 0)],
+                is_turn_energy: false,
+            },
+            is_stack: false,
+        };
+        
+        apply_action(&mut rng, &mut state, &action);
+    }
+
+    #[test]
+    #[should_panic(expected = "Pokemon should be there if attaching tool to it")]
+    fn test_attach_tool_no_pokemon_panics() {
+        let mut state = State::new(&Deck::default(), &Deck::default());
+        let mut rng: StdRng = StdRng::seed_from_u64(42);
+        
+        let action = Action {
+            actor: 0,
+            action: SimpleAction::AttachTool {
+                in_play_idx: 0,
+                tool_id: ToolId::PA010RockyHelmet,
+            },
+            is_stack: false,
+        };
+        
+        apply_action(&mut rng, &mut state, &action);
+    }
+
+    #[test]
+    #[should_panic(expected = "Active Pokemon should be there if paid retreating")]
+    fn test_retreat_no_active_panics() {
+        let mut state = State::new(&Deck::default(), &Deck::default());
+        let mut rng: StdRng = StdRng::seed_from_u64(42);
+        
+        let action = Action {
+            actor: 0,
+            action: SimpleAction::Retreat(1),
+            is_stack: false,
+        };
+        
+        apply_action(&mut rng, &mut state, &action);
+    }
+
+    #[test]
+    fn test_forecast_action_deterministic() {
+        let state = State::new(&Deck::default(), &Deck::default());
+        
+        let actions = vec![
+            SimpleAction::DrawCard,
+            SimpleAction::Place(get_card_by_enum(CardId::A1141Mankey), 0),
+            SimpleAction::Attach {
+                attachments: vec![(1, EnergyType::Fighting, 0)],
+                is_turn_energy: false,
+            },
+            SimpleAction::AttachTool {
+                in_play_idx: 0,
+                tool_id: ToolId::PA010RockyHelmet,
+            },
+            SimpleAction::Evolve(get_card_by_enum(CardId::A1142Primeape), 0),
+            SimpleAction::UseAbility(0),
+            SimpleAction::Activate { in_play_idx: 1 },
+            SimpleAction::Retreat(1),
+            SimpleAction::ApplyDamage { targets: vec![(30, 0)] },
+            SimpleAction::Heal { in_play_idx: 0, amount: 30 },
+        ];
+        
+        for simple_action in actions {
+            let action = Action {
+                actor: 0,
+                action: simple_action,
+                is_stack: false,
+            };
+            
+            let (probs, mutations) = forecast_action(&state, &action);
+            assert_eq!(probs.len(), 1);
+            assert_eq!(probs[0], 1.0);
+            assert_eq!(mutations.len(), 1);
+        }
+    }
+
+    #[test]
+    fn test_multiple_energy_attachment() {
+        let mut state = State::new(&Deck::default(), &Deck::default());
+        let mut rng: StdRng = StdRng::seed_from_u64(42);
+        
+        // Place Pokemon
+        let mankey = get_card_by_enum(CardId::A1141Mankey);
+        state.in_play_pokemon[0][0] = Some(to_playable_card(&mankey, false));
+        state.in_play_pokemon[0][1] = Some(to_playable_card(&mankey, false));
+        
+        let action = Action {
+            actor: 0,
+            action: SimpleAction::Attach {
+                attachments: vec![
+                    (2, EnergyType::Fighting, 0),
+                    (1, EnergyType::Colorless, 1),
+                ],
+                is_turn_energy: false,
+            },
+            is_stack: false,
+        };
+        
+        apply_action(&mut rng, &mut state, &action);
+        
+        assert_eq!(state.in_play_pokemon[0][0].as_ref().unwrap().attached_energy.len(), 2);
+        assert_eq!(state.in_play_pokemon[0][1].as_ref().unwrap().attached_energy.len(), 1);
     }
 }

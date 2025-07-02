@@ -277,7 +277,11 @@ fn to_canonical_names(cards: &[Card]) -> Vec<&String> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{deck::is_basic, test_helpers::load_test_decks};
+    use crate::{
+        deck::is_basic,
+        test_helpers::load_test_decks,
+        types::{Pokemon, Status, TrainerType, TrainerCard},
+    };
 
     use super::*;
 
@@ -306,5 +310,329 @@ mod tests {
         assert_eq!(state.decks[1].cards.len(), 15);
         assert!(state.hands[0].iter().any(is_basic));
         assert!(state.hands[1].iter().any(is_basic));
+    }
+
+    #[test]
+    fn test_draw_from_empty_deck() {
+        let (deck_a, deck_b) = load_test_decks();
+        let mut state = State::new(&deck_a, &deck_b);
+        
+        // Empty the deck
+        state.decks[0].cards.clear();
+        
+        // Drawing from empty deck shouldn't panic
+        state.maybe_draw_card(0);
+        
+        // Hand should remain empty
+        assert_eq!(state.hands[0].len(), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Player hand should contain card to remove")]
+    fn test_remove_nonexistent_card_from_hand() {
+        let (deck_a, deck_b) = load_test_decks();
+        let mut state = State::new(&deck_a, &deck_b);
+        
+        // Create a card that's not in hand
+        let fake_card = Card::Trainer(TrainerCard {
+            id: 0,
+            name: "Fake Card".to_string(),
+            trainer_type: TrainerType::Item,
+        });
+        
+        // This should panic
+        state.remove_card_from_hand(0, &fake_card);
+    }
+
+    #[test]
+    fn test_remove_card_from_hand_success() {
+        let (deck_a, deck_b) = load_test_decks();
+        let mut state = State::new(&deck_a, &deck_b);
+        
+        // Draw a card first
+        state.maybe_draw_card(0);
+        let card = state.hands[0][0].clone();
+        
+        // Remove it
+        state.remove_card_from_hand(0, &card);
+        
+        // Hand should be empty
+        assert_eq!(state.hands[0].len(), 0);
+    }
+
+    #[test]
+    fn test_discard_card_from_hand() {
+        let (deck_a, deck_b) = load_test_decks();
+        let mut state = State::new(&deck_a, &deck_b);
+        
+        // Draw a card first
+        state.maybe_draw_card(0);
+        let card = state.hands[0][0].clone();
+        
+        // Discard it
+        state.discard_card_from_hand(0, &card);
+        
+        // Hand should be empty, discard should have the card
+        assert_eq!(state.hands[0].len(), 0);
+        assert_eq!(state.discard_piles[0].len(), 1);
+        assert_eq!(state.discard_piles[0][0], card);
+    }
+
+    #[test]
+    #[should_panic(expected = "Decks should have at least 1 energy")]
+    fn test_generate_energy_with_no_energy_types() {
+        let (mut deck_a, deck_b) = load_test_decks();
+        deck_a.energy_types.clear();
+        let mut state = State::new(&deck_a, &deck_b);
+        
+        // This should panic
+        state.generate_energy();
+    }
+
+    #[test]
+    fn test_generate_energy_single_type() {
+        let (mut deck_a, deck_b) = load_test_decks();
+        deck_a.energy_types = vec![EnergyType::Grass];
+        let mut state = State::new(&deck_a, &deck_b);
+        
+        state.generate_energy();
+        
+        assert_eq!(state.current_energy, Some(EnergyType::Grass));
+    }
+
+    #[test]
+    fn test_reset_turn_states() {
+        let (deck_a, deck_b) = load_test_decks();
+        let mut state = State::new(&deck_a, &deck_b);
+        
+        // Set up some state
+        state.has_played_support = true;
+        state.has_retreated = true;
+        
+        // Create a Pokemon and set flags
+        let pokemon = Pokemon {
+            id: 1,
+            name: "Test Pokemon".to_string(),
+            hp: 60,
+            energy_type: EnergyType::Grass,
+            stage: 0,
+            evolves_from: None,
+            weakness: None,
+        };
+        
+        let mut played = PlayedCard::new(Card::Pokemon(pokemon));
+        played.played_this_turn = true;
+        played.ability_used = true;
+        state.in_play_pokemon[0][0] = Some(played);
+        
+        // Reset turn states
+        state.reset_turn_states();
+        
+        // Verify reset
+        assert!(!state.has_played_support);
+        assert!(!state.has_retreated);
+        assert!(!state.in_play_pokemon[0][0].as_ref().unwrap().played_this_turn);
+        assert!(!state.in_play_pokemon[0][0].as_ref().unwrap().ability_used);
+    }
+
+    #[test]
+    fn test_turn_effects() {
+        let (deck_a, deck_b) = load_test_decks();
+        let mut state = State::new(&deck_a, &deck_b);
+        
+        let effect_card = Card::Trainer(TrainerCard {
+            id: 1,
+            name: "Test Effect".to_string(),
+            trainer_type: TrainerType::Item,
+        });
+        
+        // Add effect for 2 turns
+        state.add_turn_effect(effect_card.clone(), 2);
+        
+        // Should have effect on current turn
+        let effects = state.get_current_turn_effects();
+        assert_eq!(effects.len(), 1);
+        assert_eq!(effects[0], effect_card);
+        
+        // Advance turn
+        state.turn_count = 1;
+        let effects = state.get_current_turn_effects();
+        assert_eq!(effects.len(), 1);
+        
+        // One more turn
+        state.turn_count = 2;
+        let effects = state.get_current_turn_effects();
+        assert_eq!(effects.len(), 1);
+        
+        // Should expire after
+        state.turn_count = 3;
+        let effects = state.get_current_turn_effects();
+        assert_eq!(effects.len(), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Active Pokemon should be there")]
+    fn test_get_active_no_pokemon() {
+        let (deck_a, deck_b) = load_test_decks();
+        let state = State::new(&deck_a, &deck_b);
+        
+        // This should panic
+        state.get_active(0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Active Pokemon should be there")]
+    fn test_get_active_mut_no_pokemon() {
+        let (deck_a, deck_b) = load_test_decks();
+        let mut state = State::new(&deck_a, &deck_b);
+        
+        // This should panic
+        state.get_active_mut(0);
+    }
+
+    #[test]
+    fn test_advance_turn() {
+        let (deck_a, deck_b) = load_test_decks();
+        let mut state = State::new(&deck_a, &deck_b);
+        
+        // Set initial state
+        state.current_player = 0;
+        state.turn_count = 1;
+        state.has_played_support = true;
+        state.has_retreated = true;
+        
+        // Advance turn
+        state.advance_turn();
+        
+        // Verify changes
+        assert_eq!(state.current_player, 1);
+        assert_eq!(state.turn_count, 2);
+        assert!(!state.has_played_support);
+        assert!(!state.has_retreated);
+        assert_eq!(state.move_generation_stack.len(), 1);
+        assert_eq!(state.move_generation_stack[0].0, 1);
+        assert!(state.current_energy.is_some());
+    }
+
+    #[test]
+    fn test_enumerate_in_play_pokemon() {
+        let (deck_a, deck_b) = load_test_decks();
+        let mut state = State::new(&deck_a, &deck_b);
+        
+        // Add some Pokemon
+        let pokemon = Pokemon {
+            id: 1,
+            name: "Test Pokemon".to_string(),
+            hp: 60,
+            energy_type: EnergyType::Grass,
+            stage: 0,
+            evolves_from: None,
+            weakness: None,
+        };
+        
+        state.in_play_pokemon[0][0] = Some(PlayedCard::new(Card::Pokemon(pokemon.clone())));
+        state.in_play_pokemon[0][2] = Some(PlayedCard::new(Card::Pokemon(pokemon)));
+        
+        let pokemon_list: Vec<_> = state.enumerate_in_play_pokemon(0).collect();
+        assert_eq!(pokemon_list.len(), 2);
+        assert_eq!(pokemon_list[0].0, 0);
+        assert_eq!(pokemon_list[1].0, 2);
+    }
+
+    #[test]
+    fn test_enumerate_bench_pokemon() {
+        let (deck_a, deck_b) = load_test_decks();
+        let mut state = State::new(&deck_a, &deck_b);
+        
+        // Add some Pokemon
+        let pokemon = Pokemon {
+            id: 1,
+            name: "Test Pokemon".to_string(),
+            hp: 60,
+            energy_type: EnergyType::Grass,
+            stage: 0,
+            evolves_from: None,
+            weakness: None,
+        };
+        
+        state.in_play_pokemon[0][0] = Some(PlayedCard::new(Card::Pokemon(pokemon.clone())));
+        state.in_play_pokemon[0][1] = Some(PlayedCard::new(Card::Pokemon(pokemon.clone())));
+        state.in_play_pokemon[0][2] = Some(PlayedCard::new(Card::Pokemon(pokemon)));
+        
+        let bench_list: Vec<_> = state.enumerate_bench_pokemon(0).collect();
+        assert_eq!(bench_list.len(), 2);
+        assert_eq!(bench_list[0].0, 1);
+        assert_eq!(bench_list[1].0, 2);
+    }
+
+    #[test]
+    fn test_num_in_play_of_type() {
+        let (deck_a, deck_b) = load_test_decks();
+        let mut state = State::new(&deck_a, &deck_b);
+        
+        // Add Pokemon of different types
+        let grass_pokemon = Pokemon {
+            id: 1,
+            name: "Grass Pokemon".to_string(),
+            hp: 60,
+            energy_type: EnergyType::Grass,
+            stage: 0,
+            evolves_from: None,
+            weakness: None,
+        };
+        
+        let fire_pokemon = Pokemon {
+            id: 2,
+            name: "Fire Pokemon".to_string(),
+            hp: 60,
+            energy_type: EnergyType::Fire,
+            stage: 0,
+            evolves_from: None,
+            weakness: None,
+        };
+        
+        state.in_play_pokemon[0][0] = Some(PlayedCard::new(Card::Pokemon(grass_pokemon.clone())));
+        state.in_play_pokemon[0][1] = Some(PlayedCard::new(Card::Pokemon(grass_pokemon)));
+        state.in_play_pokemon[0][2] = Some(PlayedCard::new(Card::Pokemon(fire_pokemon)));
+        
+        assert_eq!(state.num_in_play_of_type(0, EnergyType::Grass), 2);
+        assert_eq!(state.num_in_play_of_type(0, EnergyType::Fire), 1);
+        assert_eq!(state.num_in_play_of_type(0, EnergyType::Water), 0);
+    }
+
+    #[test]
+    fn test_is_game_over() {
+        let (deck_a, deck_b) = load_test_decks();
+        let mut state = State::new(&deck_a, &deck_b);
+        
+        // Not over initially
+        assert!(!state.is_game_over());
+        
+        // Over with winner
+        state.winner = Some(GameOutcome::Win(0));
+        assert!(state.is_game_over());
+        
+        // Reset and test turn limit
+        state.winner = None;
+        state.turn_count = 100;
+        assert!(state.is_game_over());
+    }
+
+    #[test]
+    fn test_queue_draw_action() {
+        let (deck_a, deck_b) = load_test_decks();
+        let mut state = State::new(&deck_a, &deck_b);
+        
+        assert_eq!(state.move_generation_stack.len(), 0);
+        
+        state.queue_draw_action(0);
+        
+        assert_eq!(state.move_generation_stack.len(), 1);
+        assert_eq!(state.move_generation_stack[0].0, 0);
+        assert_eq!(state.move_generation_stack[0].1.len(), 1);
+        match &state.move_generation_stack[0].1[0] {
+            SimpleAction::DrawCard => {},
+            _ => panic!("Expected DrawCard action"),
+        }
     }
 }
